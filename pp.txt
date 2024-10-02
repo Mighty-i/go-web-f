@@ -1,0 +1,1491 @@
+เพิ่มเติม กดลากcard ไปวางไว้ที่อื่นได้ ลักษณะคล้าย trello
+
+
+การเพิ่มฟีเจอร์การลากและวาง (drag and drop) สำหรับการจัดการการ์ดในลักษณะคล้ายกับ Trello สามารถทำได้โดยใช้ไลบรารีอย่างเช่น react-beautiful-dnd หรือ react-dnd ซึ่งเป็นไลบรารียอดนิยมสำหรับการทำ drag and drop ใน React
+
+ต่อไปนี้คือขั้นตอนการเพิ่มฟีเจอร์ drag and drop โดยใช้ react-beautiful-dnd:
+
+ติดตั้ง react-beautiful-dnd:
+
+bash
+Edit
+Copy code
+npm install react-beautiful-dnd
+ปรับปรุงโค้ดใน TodoPage เพื่อใช้ react-beautiful-dnd:
+
+javascript
+Edit
+Copy code
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import TodoCard from "@/components/TodoCard";
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+
+export default function TodoPage() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const [todos, setTodos] = useState([]);
+  const [newTodo, setNewTodo] = useState(""); // เพิ่ม state สำหรับ input
+  const [userName, setUserName] = useState("");
+
+  useEffect(() => {
+    const storedUserName = sessionStorage.getItem("userName");
+    if (storedUserName) {
+      setUserName(storedUserName);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTodos();
+  }, []);
+
+  const fetchTodos = async () => {
+    const userName = sessionStorage.userName;
+    const response = await fetch(
+      `/api/todos?userName=${encodeURIComponent(userName)}`
+    );
+    const data = await response.json();
+    setTodos(data);
+  };
+
+  const addTodo = async () => {
+    const response = await fetch("/api/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: newTodo,
+        userName: sessionStorage.userName,
+      }),
+    });
+    if (response.ok) {
+      setNewTodo(""); // ล้างค่า input หลังจากเพิ่มสำเร็จ
+      fetchTodos();
+    }
+  };
+
+  useEffect(() => {
+    const Status = sessionStorage.getItem("userStatus");
+
+    if (!Status || Status !== "ยืนยัน") {
+      router.push("/login"); // ถ้าไม่ใช่ Admin ให้ไปหน้า login
+    }
+  }, [router]);
+
+  const handleSignOut = async () => {
+    const loginBy = sessionStorage.getItem("loginby");
+    if (loginBy === "google") {
+      sessionStorage.clear();
+      await signOut({ redirect: false });
+      router.push("/login");
+    } else if (loginBy === "local") {
+      sessionStorage.clear();
+      const response = await fetch("/api/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (response.ok) {
+        router.push("/login");
+      } else {
+        console.error("Failed to logout");
+      }
+    }
+  };
+
+  const onDragEnd = (result) => {
+    if (!result.destination) return;
+
+    const items = Array.from(todos);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+
+    setTodos(items);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-700">
+      {/* Navigation Bar */}
+      <div className="bg-gray-800 p-4 flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-white">To-do List</h1>
+        {userName && (
+          <div className="flex items-center space-x-4">
+            <span className="text-white">{userName}</span>
+            <button
+              onClick={handleSignOut}
+              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+            >
+              Sign Out
+            </button>
+          </div>
+        )}
+      </div>
+      {/* Main Content */}
+      <div className="p-8 flex flex-col items-center justify-center">
+        <div className="mt-6 w-full max-w-lg">
+          <textarea
+            type="text"
+            value={newTodo} // ผูก state กับ input field
+            onChange={(e) => setNewTodo(e.target.value)} // อัปเดต state เมื่อมีการพิมพ์
+            placeholder="Add a new task "
+            className="w-full p-4 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+          />
+          <button
+            onClick={addTodo}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Add
+          </button>
+        </div>
+        <DragDropContext onDragEnd={onDragEnd}>
+          <Droppable droppableId="droppable-1">
+            {(provided) => (
+              <div
+                {...provided.droppableProps}
+                ref={provided.innerRef}
+                className="flex flex-col items-center justify-center mt-6 w-full max-w-lg"
+              >
+                {todos.map((todo, index) => (
+                  <Draggable key={todo.id} draggableId={todo.id} index={index}>
+                    {(provided) => (
+                      <div
+                        {...provided.draggableProps}
+                        {...provided.dragHandleProps}
+                        ref={provided.innerRef}
+                        className="bg-gray-100 p-4 rounded-lg mb-4"
+                      >
+                        <TodoCard todo={todo} />
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+      </div>
+    </div>
+  );
+}
+ปรับปรุงโค้ดใน TodoCard เพื่อแสดงข้อมูลของ todo:
+
+javascript
+Edit
+Copy code
+import React from "react";
+
+export default function TodoCard({ todo }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-lg text-gray-700">{todo.title}</span>
+      {/* เพิ่มปุ่มสำหรับลบ todo */}
+      <button
+        onClick={() => console.log("ลบ todo")}
+        className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+      >
+        ลบ
+      </button>
+    </div>
+  );
+}
+การเพิ่มฟีเจอร์ drag and drop ในการแสดงรายการ todo จะช่วยให้ผู้ใช้สามารถจัดการรายการ todo ได้อย่างง่ายดายและสะดวกสบายมากขึ้น
+
+หมายเหตุ: คุณสามารถปรับปรุงโค้ดเพื่อให้เหมาะสมกับความต้องการของคุณได้ตามต้องการ
+
+ต่อไปนี้คือตัวอย่างการทำงานของฟีเจอร์ drag and drop:
+
+ลาก todo ไปวางไว้ที่อื่นในรายการ
+todo จะถูกย้ายไปยังตำแหน่งใหม่ในรายการ
+todo จะถูกจัดเรียงใหม่ในรายการตามตำแหน่งใหม่
+การเพิ่มฟีเจอร์ drag and drop จะช่วยให้ผู้ใช้สามารถจัดการรายการ todo ได้อย่างมีประสิทธิภาพมากขึ้น และช่วยให้การทำงานเป็นไปอย่างราบรื่นมากขึ้น
+
+หากคุณมีคำถามเพิ่มเติมหรือต้องการความช่วยเหลือเพิ่มเติม โปรดแจ้งให้เราทราบ เรายินดีที่จะช่วยเหลือคุณ
+
+หากคุณต้องการความช่วยเหลือเพิ่มเติมเกี่ยวกับการใช้งาน react-beautiful-dnd หรือมีคำถามเกี่ยวกับการใช้งานไลบรารีนี้ โปรดแจ้งให้เราทราบ เรายินดีที่จะช่วยเหลือคุณ
+
+หากคุณต้องการความช่วยเหลือเกี่ยวกับการใช้งาน React หรือมีคำถามเกี่ยวกับการใช้งาน React โปรดแจ้งให้เราทราบ เรายินดีที่จะช่วยเหลือคุณ
+
+หากคุณต้องการความช่วยเหลือเกี่ยวกับการใช้งาน Next.js หรือมีคำถามเกี่ยวกับการใช้งาน Next.js โปรดแจ้งให้เราทราบ เรายินดีที่จะช่วยเหลือคุณ
+
+หากคุณต้องการความช่วยเหลือเกี่ยวกับการใช้งาน Next Auth หรือมีคำถามเกี่ยวกับการใช้งาน Next Auth โปรดแจ้งให้เราทราบ เรายินดีที่จะช่วยเหลือคุณ
+
+หากคุณต้องการความช่วยเหลือเกี่ยวกับการใช้งาน Session Storage หรือมีคำถามเกี่ยวกับการใช้งาน Session Storage โปรดแจ้งให้เราทราบ เรายินดีที่จะช่วยเหลือคุณ
+
+หากคุณต้องการความช่วยเหลือเกี่ยวกับการใช้งาน Local Storage หรือมีคำถามเกี่ยวกับการใช้งาน Local Storage โปรดแจ้งให้เร
+
+
+มี 3 column todo doing succeed เมื่อลากcardไปวางไว้ที่ไหนจะอัพเดตสถานะ ไปที่ api
+
+
+การเพิ่มฟีเจอร์ drag and drop ที่มี 3 คอลัมน์ (todo, doing, succeed) และการอัปเดตสถานะไปที่ API สามารถทำได้โดยใช้ react-beautiful-dnd และการทำงานกับ API
+
+ต่อไปนี้เป็นตัวอย่างการทำงาน:
+
+ติดตั้ง react-beautiful-dnd:
+
+bash
+Edit
+Copy code
+npm install react-beautiful-dnd
+ปรับปรุงโค้ดใน TodoPage เพื่อใช้ react-beautiful-dnd และจัดการกับ 3 คอลัมน์:
+
+javascript
+Edit
+Copy code
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import TodoCard from "@/components/TodoCard";
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+
+export default function TodoPage() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const [todos, setTodos] = useState([]);
+  const [newTodo, setNewTodo] = useState(""); // เพิ่ม state สำหรับ input
+  const [userName, setUserName] = useState("");
+
+  useEffect(() => {
+    const storedUserName = sessionStorage.getItem("userName");
+    if (storedUserName) {
+      setUserName(storedUserName);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTodos();
+  }, []);
+
+  const fetchTodos = async () => {
+    const userName = sessionStorage.userName;
+    const response = await fetch(
+      `/api/todos?userName=${encodeURIComponent(userName)}`
+    );
+    const data = await response.json();
+    setTodos(data);
+  };
+
+  const addTodo = async () => {
+    const response = await fetch("/api/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: newTodo,
+        userName: sessionStorage.userName,
+        status: "todo",
+      }),
+    });
+    if (response.ok) {
+      setNewTodo(""); // ล้างค่า input หลังจากเพิ่มสำเร็จ
+      fetchTodos();
+    }
+  };
+
+  useEffect(() => {
+    const Status = sessionStorage.getItem("userStatus");
+
+    if (!Status || Status !== "ยืนยัน") {
+      router.push("/login"); // ถ้าไม่ใช่ Admin ให้ไปหน้า login
+    }
+  }, [router]);
+
+  const handleSignOut = async () => {
+    const loginBy = sessionStorage.getItem("loginby");
+    if (loginBy === "google") {
+      sessionStorage.clear();
+      await signOut({ redirect: false });
+      router.push("/login");
+    } else if (loginBy === "local") {
+      sessionStorage.clear();
+      const response = await fetch("/api/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (response.ok) {
+        router.push("/login");
+      } else {
+        console.error("Failed to logout");
+      }
+    }
+  };
+
+  const onDragEnd = async (result) => {
+    if (!result.destination) return;
+
+    const sourceIndex = result.source.index;
+    const destinationIndex = result.destination.index;
+    const sourceColumn = result.source.droppableId;
+    const destinationColumn = result.destination.droppableId;
+
+    const items = Array.from(todos);
+    const [movedItem] = items.splice(sourceIndex, 1);
+    movedItem.status = destinationColumn; // อัปเดตสถานะของการ์ด
+    items.splice(destinationIndex, 0, movedItem);
+
+    setTodos(items);
+
+    // อัปเดตสถานะใน API
+    await fetch("/api/todos", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: movedItem.id, status: destinationColumn }),
+    });
+  };
+
+  const columns = {
+    todo: {
+      name: "To Do",
+      items: todos.filter((todo) => todo.status === "todo"),
+    },
+    doing: {
+      name: "Doing",
+      items: todos.filter((todo) => todo.status === "doing"),
+    },
+    succeed: {
+      name: "Succeed",
+      items: todos.filter((todo) => todo.status === "succeed"),
+    },
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-700">
+      {/* Navigation Bar */}
+      <div className="bg-gray-800 p-4 flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-white">To-do List </h1>
+        {userName && (
+          <div className="flex items-center space-x-4">
+            <span className="text-white">{userName}</span>
+            <button
+              onClick={handleSignOut}
+              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+            >
+              Sign Out
+            </button>
+          </div>
+        )}
+      </div>
+      {/* Main Content */}
+      <div className="p-8 flex flex-col items-center justify-center">
+        <div className="mt-6 w-full max-w-lg">
+          <textarea
+            type="text"
+            value={newTodo} // ผูก state กับ input field
+            onChange={(e) => setNewTodo(e.target.value)} // อัปเดต state เมื่อมีการพิมพ์
+            placeholder="Add a new task "
+            className="w-full p-4 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+          />
+          <button
+            onClick={addTodo}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Add
+          </button>
+        </div>
+        <DragDropContext onDragEnd={onDragEnd}>
+          {Object.keys(columns).map((columnId, index) => (
+            <Droppable key={columnId} droppableId={columnId}>
+              {(provided) => (
+                <div
+                  {...provided.droppableProps}
+                  ref={provided.innerRef}
+                  className="flex flex-col items-center justify-center mt-6 w-full max-w-lg"
+                >
+                  <h2 className="text-lg text-gray-700">{columns[columnId].name}</h2>
+                  {columns[columnId].items.map((todo, index) => (
+                    <Draggable key={todo.id} draggableId={todo.id} index={index}>
+                      {(provided) => (
+                        <div
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          ref={provided.innerRef}
+                          className="bg-gray-100 p-4 rounded-lg mb-4"
+                        >
+                          <TodoCard todo={todo} />
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          ))}
+        </DragDropContext>
+      </div>
+    </div>
+  );
+}
+ปรับปรุงโค้ดใน TodoCard เพื่อแสดงข้อมูลของ todo:
+
+javascript
+Edit
+Copy code
+import React from "react";
+
+export default function TodoCard({ todo }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-lg text-gray-700">{todo.title}</span>
+      {/* เพิ่มปุ่มสำหรับลบ todo */}
+      <button
+        onClick={() => console.log("ลบ todo")}
+        className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+      >
+        ลบ
+      </button>
+    </div>
+  );
+}
+การเพิ่มฟีเจอร์ drag and drop ที่มี 3 คอลัมน์ (todo, doing, succeed) และการอัปเดตสถานะไปที่ API จะช่วยให้ผู้ใช้สามารถจัดการรายการ todo ได้อย่างมีประสิทธิภาพมากขึ้น และช่วยให้การทำงานเป็นไปอย่างราบรื่นมากขึ้น
+
+หมายเหตุ: คุณสามารถปรับปรุงโค้ดเพื่อให้เหมาะสมกับความต้องการของคุณได้ตามต้องการ
+
+ต่อไปนี้คือตัวอย่างการทำงานของฟีเจอร์ drag and drop:
+
+ลาก todo ไปวางไว้ที่อื่นในรายการ
+todo จะถูกย้ายไปยังตำแหน่งใหม่ในรายการ
+todo จะถูกจัดเรียงใหม่ในรายการตามตำแหน่งใหม่
+สถานะของ todo จะถูกอัปเดตไปที่ API ตามตำแหน่งใหม่
+การเพิ่มฟีเจอร์ drag and drop จะช่วยให้ผู้ใช้สามารถจัดการรายการ todo ได้อย่างมีประสิทธิภาพมากขึ้น และช่วยให้การทำงานเป็นไปอย่างราบรื่นมากขึ้น
+
+หากคุณมีคำถามเพิ่มเติมหรือต้องการความช่วยเหลือเพิ่มเติม โปรดแจ้งให้เราทราบ เรายินดีที่จะช่วยเหลือคุณ
+
+
+TodoCard ยังมีsaveTitle deleteTodo อยูาเหมือนเดิม
+
+
+แน่นอน! เราสามารถเก็บฟังก์ชัน saveTitle และ deleteTodo ไว้ใน TodoCard ได้เหมือนเดิม โดยปรับปรุงการจัดการการ์ดใน TodoPage ให้รองรับการลากและวางได้ตามที่ต้องการ
+
+ต่อไปนี้คือโค้ดที่ปรับปรุงให้รองรับการลากและวาง พร้อมกับการเก็บฟังก์ชัน saveTitle และ deleteTodo ไว้ใน TodoCard:
+
+ปรับปรุง TodoPage:
+
+javascript
+Edit
+Copy code
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import TodoCard from "@/components/TodoCard";
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+
+export default function TodoPage() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const [todos, setTodos] = useState([]);
+  const [newTodo, setNewTodo] = useState(""); // เพิ่ม state สำหรับ input
+  const [userName, setUserName] = useState("");
+
+  useEffect(() => {
+    const storedUserName = sessionStorage.getItem("userName");
+    if (storedUserName) {
+      setUserName(storedUserName);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTodos();
+  }, []);
+
+  const fetchTodos = async () => {
+    const userName = sessionStorage.userName;
+    const response = await fetch(
+      `/api/todos?userName=${encodeURIComponent(userName)}`
+    );
+    const data = await response.json();
+    setTodos(data);
+  };
+
+  const addTodo = async () => {
+    const response = await fetch("/api/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: newTodo,
+        userName: sessionStorage.userName,
+        status: "todo",
+      }),
+    });
+    if (response.ok) {
+      setNewTodo(""); // ล้างค่า input หลังจากเพิ่มสำเร็จ
+      fetchTodos();
+    }
+  };
+
+  useEffect(() => {
+    const Status = sessionStorage.getItem("userStatus");
+
+    if (!Status || Status !== "ยืนยัน") {
+      router.push("/login"); // ถ้าไม่ใช่ Admin ให้ไปหน้า login
+    }
+  }, [router]);
+
+  const handleSignOut = async () => {
+    const loginBy = sessionStorage.getItem("loginby");
+    if (loginBy === "google") {
+      sessionStorage.clear();
+      await signOut({ redirect: false });
+      router.push("/login");
+    } else if (loginBy === "local") {
+      sessionStorage.clear();
+      const response = await fetch("/api/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (response.ok) {
+        router.push("/login");
+      } else {
+        console.error("Failed to logout");
+      }
+    }
+  };
+
+  const onDragEnd = async (result) => {
+    if (!result.destination) return;
+
+    const sourceIndex = result.source.index;
+    const destinationIndex = result.destination.index;
+    const sourceColumn = result.source.droppableId;
+    const destinationColumn = result.destination.droppableId;
+
+    const items = Array.from(todos);
+    const [movedItem] = items.splice(sourceIndex, 1);
+    movedItem.status = destinationColumn; // อัปเดตสถานะของการ์ด
+    items.splice(destinationIndex, 0, movedItem);
+
+    setTodos(items);
+
+    // อัปเดตสถานะใน API
+    await fetch("/api/todos", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: movedItem.id, status: destinationColumn }),
+    });
+  };
+
+  const columns = {
+    todo: {
+      name: "To Do",
+      items: todos.filter((todo) => todo.status === "todo"),
+    },
+    doing: {
+      name: "Doing",
+      items: todos.filter((todo) => todo.status === "doing"),
+    },
+    succeed: {
+      name: "Succeed",
+      items: todos.filter((todo) => todo.status === "succeed"),
+    },
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-700">
+      {/* Navigation Bar */}
+      <div className="bg-gray-800 p-4 flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-white">To-do List</h1>
+        { userName && (
+          <div className="flex items-center space-x-4">
+            <span className="text-white">{userName}</span>
+            <button
+              onClick={handleSignOut}
+              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+            >
+              Sign Out
+            </button>
+          </div>
+        )}
+      </div>
+      {/* Main Content */}
+      <div className="p-8 flex flex-col items-center justify-center">
+        <div className="mt-6 w-full max-w-lg">
+          <textarea
+            type="text"
+            value={newTodo} // ผูก state กับ input field
+            onChange={(e) => setNewTodo(e.target.value)} // อัปเดต state เมื่อมีการพิมพ์
+            placeholder="Add a new task "
+            className="w-full p-4 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+          />
+          <button
+            onClick={addTodo}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Add
+          </button>
+        </div>
+        <DragDropContext onDragEnd={onDragEnd}>
+          {Object.keys(columns).map((columnId, index) => (
+            <Droppable key={columnId} droppableId={columnId}>
+              {(provided) => (
+                <div
+                  {...provided.droppableProps}
+                  ref={provided.innerRef}
+                  className="flex flex-col items-center justify-center mt-6 w-full max-w-lg"
+                >
+                  <h2 className="text-lg text-gray-700">{columns[columnId].name}</h2>
+                  {columns[columnId].items.map((todo, index) => (
+                    <Draggable key={todo.id} draggableId={todo.id} index={index}>
+                      {(provided) => (
+                        <div
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          ref={provided.innerRef}
+                          className="bg-gray-100 p-4 rounded-lg mb-4"
+                        >
+                          <TodoCard
+                            todo={todo}
+                            key={todo.id}
+                            saveTitle={(title) => saveTitle(todo.id, title)}
+                            deleteTodo={(id) => deleteTodo(id)}
+                          />
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          ))}
+        </DragDropContext>
+      </div>
+    </div>
+  );
+}
+ปรับปรุง TodoCard:
+
+javascript
+Edit
+Copy code
+import React from "react";
+
+export default function TodoCard({ todo, saveTitle, deleteTodo }) {
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [title, setTitle] = React.useState(todo.title);
+
+  const handleSaveTitle = async () => {
+    await saveTitle(title);
+    setIsEditing(false);
+  };
+
+  const handleDeleteTodo = async () => {
+    await deleteTodo(todo.id);
+  };
+
+  return (
+    <div className="flex items-center justify-between">
+      {isEditing ? (
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="w-full p-2 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+        />
+      ) : (
+        <span className="text-lg text-gray-700">{title}</span>
+      )}
+      <div className="flex items-center space-x-2">
+        {isEditing ? (
+          <button
+            onClick={handleSaveTitle}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Save
+          </button>
+        ) : (
+          <button
+            onClick={() => setIsEditing(true)}
+            className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+          >
+            Edit
+          </button>
+        )}
+        <button
+          onClick={handleDeleteTodo}
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+การปรับปรุงโค้ดให้รองรับการลากและวาง พร้อมกับการเก็บฟังก์ชัน saveTitle และ deleteTodo ไว้ใน TodoCard จะช่วยให้ผู้ใช้สามารถจัดการรายการ todo ได้อย่างมีประสิทธิภาพมากขึ้น และช่วยให้การทำงานเป็นไปอย่างราบรื่นมากขึ้น
+
+หากคุณมีคำถามเพ ิ่มเติมหรือต้องการความช่วยเหลือเพิ่มเติม โปรดแจ้งให้เราทราบ เรายินดีที่จะช่วยเหลือคุณ
+
+
+การสร้าง card จะมีหัวเรื่องหลัก ของcard
+
+
+การเพิ่มหัวเรื่องหลักของการ์ด (Card Title) สามารถทำได้โดยการปรับปรุงโครงสร้างของการ์ดใน TodoCard และการจัดการการสร้างการ์ดใน TodoPage ให้รองรับการเพิ่มหัวเรื่องหลัก
+
+ต่อไปนี้คือขั้นตอนการปรับปรุง:
+
+ปรับปรุง TodoPage เพื่อรองรับการเพิ่มหัวเรื่องหลักของการ์ด:
+
+javascript
+Edit
+Copy code
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import TodoCard from "@/components/TodoCard";
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+
+export default function TodoPage() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const [todos, setTodos] = useState([]);
+  const [newTodoTitle, setNewTodoTitle] = useState(""); // เพิ่ม state สำหรับหัวเรื่องหลัก
+  const [newTodoContent, setNewTodoContent] = useState(""); // เพิ่ม state สำหรับเนื้อหาของการ์ด
+  const [userName, setUserName] = useState("");
+
+  useEffect(() => {
+    const storedUserName = sessionStorage.getItem("userName");
+    if (storedUserName) {
+      setUserName(storedUserName);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTodos();
+  }, []);
+
+  const fetchTodos = async () => {
+    const userName = sessionStorage.userName;
+    const response = await fetch(
+      `/api/todos?userName=${encodeURIComponent(userName)}`
+    );
+    const data = await response.json();
+    setTodos(data);
+  };
+
+  const addTodo = async () => {
+    const response = await fetch("/api/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: newTodoTitle,
+        content: newTodoContent, // เพิ่มเนื้อหาของการ์ด
+        userName: sessionStorage.userName,
+        status: "todo",
+      }),
+    });
+    if (response.ok) {
+      setNewTodoTitle(""); // ล้างค่า input หลังจากเพิ่มสำเร็จ
+      setNewTodoContent(""); // ล้างค่า input หลังจากเพิ่มสำเร็จ
+      fetchTodos();
+    }
+  };
+
+  useEffect(() => {
+    const Status = sessionStorage.getItem("userStatus");
+
+    if (!Status || Status !== "ยืนยัน") {
+      router.push("/login"); // ถ้าไม่ใช่ Admin ให้ไปหน้า login
+    }
+  }, [router]);
+
+  const handleSignOut = async () => {
+    const loginBy = sessionStorage.getItem("loginby");
+    if (loginBy === "google") {
+      sessionStorage.clear();
+      await signOut({ redirect: false });
+      router.push("/login");
+    } else if (loginBy === "local") {
+      sessionStorage.clear();
+      const response = await fetch("/api/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (response.ok) {
+        router.push("/login");
+      } else {
+        console.error("Failed to logout");
+      }
+    }
+  };
+
+  const onDragEnd = async (result) => {
+    if (!result.destination) return;
+
+    const sourceIndex = result.source.index;
+    const destinationIndex = result.destination.index;
+    const sourceColumn = result.source.droppableId;
+    const destinationColumn = result.destination.droppableId;
+
+    const items = Array.from(todos);
+    const [movedItem] = items.splice(sourceIndex, 1);
+    movedItem.status = destinationColumn; // อัปเดตสถานะของการ์ด
+    items.splice(destinationIndex, 0, movedItem);
+
+    setTodos(items);
+
+    // อัปเดตสถานะใน API
+    await fetch("/api/todos", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: movedItem.id, status: destinationColumn }),
+    });
+  };
+
+  const columns = {
+    todo: {
+      name: "To Do",
+      items: todos.filter((todo) => todo.status === "todo"),
+    },
+    doing: {
+      name: "Doing",
+      items: todos.filter((todo) => todo.status === "doing"),
+    },
+    succeed: {
+      name: "Succeed",
+      items: todos.filter((todo) => todo.status === "succeed"),
+    },
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-700">
+      {/* Navigation Bar */}
+      <div className="bg-gray -800 p-4 flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-white">To-do List</h1>
+        {userName && (
+          <div className="flex items-center space-x-4">
+            <span className="text-white">{userName}</span>
+            <button
+              onClick={handleSignOut}
+              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+            >
+              Sign Out
+            </button>
+          </div>
+        )}
+      </div>
+      {/* Main Content */}
+      <div className="p-8 flex flex-col items-center justify-center">
+        <div className="mt-6 w-full max-w-lg">
+          <input
+            type="text"
+            value={newTodoTitle} // ผูก state กับ input field
+            onChange={(e) => setNewTodoTitle(e.target.value)} // อัปเดต state เมื่อมีการพิมพ์
+            placeholder="Add a new title "
+            className="w-full p-4 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+          />
+          <textarea
+            type="text"
+            value={newTodoContent} // ผูก state กับ input field
+            onChange={(e) => setNewTodoContent(e.target.value)} // อัปเดต state เมื่อมีการพิมพ์
+            placeholder="Add a new content "
+            className="w-full p-4 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+          />
+          <button
+            onClick={addTodo}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Add
+          </button>
+        </div>
+        <DragDropContext onDragEnd={onDragEnd}>
+          {Object.keys(columns).map((columnId, index) => (
+            <Droppable key={columnId} droppableId={columnId}>
+              {(provided) => (
+                <div
+                  {...provided.droppableProps}
+                  ref={provided.innerRef}
+                  className="flex flex-col items-center justify-center mt-6 w-full max-w-lg"
+                >
+                  <h2 className="text-lg text-gray-700">{columns[columnId].name}</h2>
+                  {columns[columnId].items.map((todo, index) => (
+                    <Draggable key={todo.id} draggableId={todo.id} index={index}>
+                      {(provided) => (
+                        <div
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          ref={provided.innerRef}
+                          className="bg-gray-100 p-4 rounded-lg mb-4"
+                        >
+                          <TodoCard
+                            todo={todo}
+                            key={todo.id}
+                            saveTitle={(title) => saveTitle(todo.id, title)}
+                            deleteTodo={(id) => deleteTodo(id)}
+                          />
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          ))}
+        </DragDropContext>
+      </div>
+    </div>
+  );
+}
+ปรับปรุง TodoCard เพื่อรองรับการแสดงหัวเรื่องหลักของการ์ด:
+
+javascript
+Edit
+Copy code
+import React from "react";
+
+export default function TodoCard({ todo, saveTitle, deleteTodo }) {
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [title, setTitle] = React.useState(todo.title);
+  const [content, setContent] = React.useState(todo.content); // เพิ่ม state สำหรับเนื้อหาของการ์ด
+
+  const handleSaveTitle = async () => {
+    await saveTitle(title);
+    setIsEditing(false);
+  };
+
+  const handleDeleteTodo = async () => {
+    await deleteTodo(todo.id);
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center">
+      <h2 className="text-lg text-gray-700">{title}</h2>
+      <p className="text-lg text-gray-700">{content}</p>
+      <div className="flex items-center space-x-2">
+        {isEditing ? (
+          <button
+            onClick={handleSaveTitle}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Save
+          </button>
+        ) : (
+          <button
+            onClick={() => setIsEditing(true)}
+            className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+          >
+            Edit
+          </button>
+        )}
+        <button
+          onClick={handleDeleteTodo}
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg -red-600"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+ด้วยการปรับปรุงโค้ดดังกล่าว จะช่วยให้ผู้ใช้สามารถเพิ่มหัวเรื่องหลักของการ์ดได้อย่างง่ายดาย และช่วยให้การทำงานเป็นไปอย่างราบรื่นมากขึ้น
+
+
+เพิ่มการสร้างหัวเรื่องหลัก ของแต่ละการสร้างcard todo
+
+
+การเพิ่มการสร้างหัวเรื่องหลักของแต่ละการสร้างการ์ด (Card Title) สามารถทำได้โดยการปรับปรุงโค้ดใน TodoPage ให้รองรับการเพิ่มหัวเรื่องหลัก และการจัดการการ์ดใน TodoCard ให้แสดงหัวเรื่องหลักและเนื้อหาของการ์ด
+
+ต่อไปนี้คือขั้นตอนการปรับปรุง:
+
+ปรับปรุง TodoPage เพื่อรองรับการเพิ่มหัวเรื่องหลักของการ์ด:
+
+javascript
+Edit
+Copy code
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import TodoCard from "@/components/TodoCard";
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+
+export default function TodoPage() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const [todos, setTodos] = useState([]);
+  const [newTodoTitle, setNewTodoTitle] = useState(""); // เพิ่ม state สำหรับหัวเรื่องหลัก
+  const [newTodoContent, setNewTodoContent] = useState(""); // เพิ่ม state สำหรับเนื้อหาของการ์ด
+  const [userName, setUserName] = useState("");
+
+  useEffect(() => {
+    const storedUserName = sessionStorage.getItem("userName");
+    if (storedUserName) {
+      setUserName(storedUserName);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTodos();
+  }, []);
+
+  const fetchTodos = async () => {
+    const userName = sessionStorage.userName;
+    const response = await fetch(
+      `/api/todos?userName=${encodeURIComponent(userName)}`
+    );
+    const data = await response.json();
+    setTodos(data);
+  };
+
+  const addTodo = async () => {
+    const response = await fetch("/api/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: newTodoTitle,
+        content: newTodoContent, // เพิ่มเนื้อหาของการ์ด
+        userName: sessionStorage.userName,
+        status: "todo",
+      }),
+    });
+    if (response.ok) {
+      setNewTodoTitle(""); // ล้างค่า input หลังจากเพิ่มสำเร็จ
+      setNewTodoContent(""); // ล้างค่า input หลังจากเพิ่มสำเร็จ
+      fetchTodos();
+    }
+  };
+
+  useEffect(() => {
+    const Status = sessionStorage.getItem("userStatus");
+
+    if (!Status || Status !== "ยืนยัน") {
+      router.push("/login"); // ถ้าไม่ใช่ Admin ให้ไปหน้า login
+    }
+  }, [router]);
+
+  const handleSignOut = async () => {
+    const loginBy = sessionStorage.getItem("loginby");
+    if (loginBy === "google") {
+      sessionStorage.clear();
+      await signOut({ redirect: false });
+      router.push("/login");
+    } else if (loginBy === "local") {
+      sessionStorage.clear();
+      const response = await fetch("/api/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (response.ok) {
+        router.push("/login");
+      } else {
+        console.error("Failed to logout");
+      }
+    }
+  };
+
+  const onDragEnd = async (result) => {
+    if (!result.destination) return;
+
+    const sourceIndex = result.source.index;
+    const destinationIndex = result.destination.index;
+    const sourceColumn = result.source.droppableId;
+    const destinationColumn = result.destination.droppableId;
+
+    const items = Array.from(todos);
+    const [movedItem] = items.splice(sourceIndex, 1);
+    movedItem.status = destinationColumn; // อัปเดตสถานะของการ์ด
+    items.splice(destinationIndex, 0, movedItem);
+
+    setTodos(items);
+
+    // อัปเดตสถานะใน API
+    await fetch("/api/todos", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: movedItem.id, status: destinationColumn }),
+    });
+  };
+
+  const columns = {
+    todo: {
+      name: "To Do",
+      items: todos.filter((todo) => todo.status === "todo"),
+    },
+    doing: {
+      name: "Doing",
+      items: todos.filter((todo) => todo.status === "doing"),
+    },
+    succeed: {
+      name: "Succeed",
+      items: todos.filter((todo) => todo.status === "succeed"),
+    },
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-700 ">
+      {/* Navigation Bar */}
+      <div className="bg-gray -800 p-4 flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-white">To-do List</h1>
+        {userName && (
+          <div className="flex items-center space-x-4">
+            <span className="text-white">{userName}</span>
+            <button
+              onClick={handleSignOut}
+              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+            >
+              Sign Out
+            </button>
+          </div>
+        )}
+      </div>
+      {/* Main Content */}
+      <div className="p-8 flex flex-col items-center justify-center">
+        <div className="mt-6 w-full max-w-lg">
+          <input
+            type="text"
+            value={newTodoTitle} // ผูก state กับ input field
+            onChange={(e) => setNewTodoTitle(e.target.value)} // อัปเดต state เมื่อมีการพิมพ์
+            placeholder="Add a new title "
+            className="w-full p-4 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+          />
+          <textarea
+            type="text"
+            value={newTodoContent} // ผูก state กับ input field
+            onChange={(e) => setNewTodoContent(e.target.value)} // อัปเดต state เมื่อมีการพิมพ์
+            placeholder="Add a new content "
+            className="w-full p-4 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+          />
+          <button
+            onClick={addTodo}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Add
+          </button>
+        </div>
+        <DragDropContext onDragEnd={onDragEnd}>
+          {Object.keys(columns).map((columnId, index) => (
+            <Droppable key={columnId} droppableId={columnId}>
+              {(provided) => (
+                <div
+                  {...provided.droppableProps}
+                  ref={provided.innerRef}
+                  className="flex flex-col items-center justify-center mt-6 w-full max-w-lg"
+                >
+                  <h2 className="text-lg text-gray-700">{columns[columnId].name}</h2>
+                  {columns[columnId].items.map((todo, index) => (
+                    <Draggable key={todo.id} draggableId={todo.id} index={index}>
+                      {(provided) => (
+                        <div
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          ref={provided.innerRef}
+                          className="bg-gray-100 p-4 rounded-lg mb-4"
+                        >
+                          <TodoCard
+                            todo={todo}
+                            key={todo.id}
+                            saveTitle={(title) => saveTitle(todo.id, title)}
+                            deleteTodo={(id) => deleteTodo(id)}
+                          />
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          ))}
+        </DragDropContext>
+      </div>
+    </div>
+  );
+}
+ปรับปรุง TodoCard เพื่อรองรับการแสดงหัวเรื่องหลักและเนื้อหาของการ์ด:
+
+javascript
+Edit
+Copy code
+import React from "react";
+
+export default function TodoCard({ todo, saveTitle, deleteTodo }) {
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [title, setTitle] = React.useState(todo.title);
+  const [content, setContent] = React.useState(todo.content); // เพิ่ม state สำหรับเนื้อหาของการ์ด
+
+  const handleSaveTitle = async () => {
+    await saveTitle(title);
+    setIsEditing(false);
+  };
+
+  const handleDeleteTodo = async () => {
+    await deleteTodo(todo.id);
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center">
+      <h2 className="text-lg text-gray-700">{title}</h2>
+      <p className="text-lg text-gray-700">{content}</p>
+      <div className="flex items-center space-x-2">
+        {isEditing ? (
+          <button
+            onClick={handleSaveTitle}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Save
+          </button>
+        ) : (
+          <button
+            onClick={() => setIsEditing(true)}
+            className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+          >
+            Edit
+          </button>
+        )}
+        <button
+          onClick={handleDeleteTodo}
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg -red-600"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+ด้วยการปรับปรุงโค้ดดังกล่าว จะช่วยให้ผู้ใช้สามารถเพิ่มหัวเรื่องหลักและเนื้อหาของการ์ดได้อย่างง่ายดาย และช่วยให้การทำงานเป็นไปอย่างราบรื่นมากขึ้น User
+
+
+เพิ่มการสร้างหัวเรื่องหลักโดยรวม ก่อนที่จะสร้างcard todo ทั้งหมด
+
+
+การเพิ่มการสร้างหัวเรื่องหลักโดยรวมก่อนที่จะสร้างการ์ด (Card) ทั้งหมดสามารถทำได้โดยการเพิ่มฟอร์มสำหรับการสร้างหัวเรื่องหลัก และการจัดการหัวเรื่องหลักนี้ในสถานะ (state) ของคอมโพเนนต์ TodoPage
+
+ต่อไปนี้เป็นขั้นตอนการปรับปรุง:
+
+ปรับปรุง TodoPage เพื่อรองรับการสร้างหัวเรื่องหลักโดยรวมก่อนที่จะสร้างการ์ด:
+
+javascript
+Edit
+Copy code
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import TodoCard from "@/components/TodoCard";
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+
+export default function TodoPage() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const [todos, setTodos] = useState([]);
+  const [newTodoTitle, setNewTodoTitle] = useState(""); // เพิ่ม state สำหรับหัวเรื่องหลัก
+  const [newTodoContent, setNewTodoContent] = useState(""); // เพิ่ม state สำหรับเนื้อหาของการ์ด
+  const [userName, setUserName] = useState("");
+  const [mainTitle, setMainTitle] = useState(""); // เพิ่ม state สำหรับหัวเรื่องหลักโดยรวม
+
+  useEffect(() => {
+    const storedUserName = sessionStorage.getItem("userName");
+    if (storedUserName) {
+      setUserName(storedUserName);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTodos();
+  }, []);
+
+  const fetchTodos = async () => {
+    const userName = sessionStorage.userName;
+    const response = await fetch(
+      `/api/todos?userName=${encodeURIComponent(userName)}`
+    );
+    const data = await response.json();
+    setTodos(data);
+  };
+
+  const addTodo = async () => {
+    const response = await fetch("/api/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: newTodoTitle,
+        content: newTodoContent, // เพิ่มเนื้อหาของการ์ด
+        userName: sessionStorage.userName,
+        status: "todo",
+        mainTitle: mainTitle, // เพิ่มหัวเรื่องหลักโดยรวม
+      }),
+    });
+    if (response.ok) {
+      setNewTodoTitle(""); // ล้างค่า input หลังจากเพิ่มสำเร็จ
+      setNewTodoContent(""); // ล้างค่า input หลังจากเพิ่มสำเร็จ
+      fetchTodos();
+    }
+  };
+
+  useEffect(() => {
+    const Status = sessionStorage.getItem("userStatus");
+
+    if (!Status || Status !== "ยืนยัน") {
+      router.push("/login"); // ถ้าไม่ใช่ Admin ให้ไปหน้า login
+    }
+  }, [router]);
+
+  const handleSignOut = async () => {
+    const loginBy = sessionStorage.getItem("loginby");
+    if (loginBy === "google") {
+      sessionStorage.clear();
+      await signOut({ redirect: false });
+      router.push("/login");
+    } else if (loginBy === "local") {
+      sessionStorage.clear();
+      const response = await fetch("/api/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (response.ok) {
+        router.push("/login");
+      } else {
+        console.error("Failed to logout");
+      }
+    }
+  };
+
+  const onDragEnd = async (result) => {
+    if (!result.destination) return;
+
+    const sourceIndex = result.source.index;
+    const destinationIndex = result.destination.index;
+    const sourceColumn = result.source.droppableId;
+    const destinationColumn = result.destination.droppableId;
+
+    const items = Array.from(todos);
+    const [movedItem] = items.splice(sourceIndex, 1);
+    movedItem.status = destinationColumn; // อัปเดตสถานะของการ์ด
+    items.splice(destinationIndex, 0, movedItem);
+
+    setTodos(items);
+
+    // อัปเดตสถานะใน API
+    await fetch("/api/todos", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: movedItem.id, status: destinationColumn }),
+    });
+  };
+
+  const columns = {
+    todo: {
+      name: "To Do",
+      items: todos.filter((todo) => todo.status === "todo"),
+    },
+    doing: {
+      name: "Doing",
+      items: todos.filter((todo) => todo.status === "doing"),
+    },
+    succeed: {
+      name: "Succeed",
+      items: todos.filter ((todo) => todo.status === "succeed"),
+    },
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-700 ">
+      {/* Navigation Bar */}
+      <div className="bg-gray -800 p-4 flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-white">To-do List</h1>
+        {userName && (
+          <div className="flex items-center space-x-4">
+            <span className="text-white">{userName}</span>
+            <button
+              onClick={handleSignOut}
+              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+            >
+              Sign Out
+            </button>
+          </div>
+        )}
+      </div>
+      {/* Main Content */}
+      <div className="p-8 flex flex-col items-center justify-center">
+        <div className="mt-6 w-full max-w-lg">
+          <input
+            type="text"
+            value={mainTitle} // ผูก state กับ input field
+            onChange={(e) => setMainTitle(e.target.value)} // อัปเดต state เมื่อมีการพิมพ์
+            placeholder="Add a main title "
+            className="w-full p-4 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+          />
+          <input
+            type="text"
+            value={newTodoTitle} // ผูก state กับ input field
+            onChange={(e) => setNewTodoTitle(e.target.value)} // อัปเดต state เมื่อมีการพิมพ์
+            placeholder="Add a new title "
+            className="w-full p-4 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+          />
+          <textarea
+            type="text"
+            value={newTodoContent} // ผูก state กับ input field
+            onChange={(e) => setNewTodoContent(e.target.value)} // อัปเดต state เมื่อมีการพิมพ์
+            placeholder="Add a new content "
+            className="w-full p-4 text-lg text-gray-700 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600"
+          />
+          <button
+            onClick={addTodo}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Add
+          </button>
+        </div>
+        <DragDropContext onDragEnd={onDragEnd}>
+          {Object.keys(columns).map((columnId, index) => (
+            <Droppable key={columnId} droppableId={columnId}>
+              {(provided) => (
+                <div
+                  {...provided.droppableProps}
+                  ref={provided.innerRef}
+                  className="flex flex-col items-center justify-center mt-6 w-full max-w-lg"
+                >
+                  <h2 className="text-lg text-gray-700">{columns[columnId].name}</h2>
+                  {columns[columnId].items.map((todo, index) => (
+                    <Draggable key={todo.id} draggableId={todo.id} index={index}>
+                      {(provided) => (
+                        <div
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          ref={provided.innerRef}
+                          className="bg-gray-100 p-4 rounded-lg mb-4"
+                        >
+                          <TodoCard
+                            todo={todo}
+                            key={todo.id}
+                            saveTitle={(title) => saveTitle(todo.id, title)}
+                            deleteTodo={(id) => deleteTodo(id)}
+                          />
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          ))}
+        </DragDropContext>
+      </div>
+    </div>
+  );
+}
+ด้วยการปรับปรุงโค้ดดังกล่าว จะช่วยให้ผู้ใช้สามารถสร้างหัวเรื่องหลักโดยรวมก่อนที่จะสร้างการ์ด (Card) ทั้งหมดได้อย่างง่ายดาย และช่วยให้การทำงานเป็นไปอย่างราบรื่นมากขึ้น User User
+
+
+
+
+Share
+New
+Continue
+GPT-4o
+Claude-Sonnet
